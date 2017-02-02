@@ -4,7 +4,9 @@ const _ = require('lodash'),
   BbPromise = require('bluebird'),
   dynamodbMigrations = require('dynamodb-migrations'),
   AWS = require('aws-sdk'),
-  dynamodbLocal = require('dynamodb-localhost');
+  dynamodbLocal = require('dynamodb-localhost'),
+  fs = require('fs'),
+  path = require('path');
 
 class ServerlessDynamodbLocal {
   constructor(serverless, options) {
@@ -51,6 +53,10 @@ class ServerlessDynamodbLocal {
                 usage: 'Stage that dynamodb should be remotely executed'
               }
             }
+          },
+          executeAllTest: {
+            lifecycleEvents: ['executeAllTestHandler'],
+            options: {}
           },
           start: {
             lifecycleEvents: ['startHandler'],
@@ -110,6 +116,7 @@ class ServerlessDynamodbLocal {
       'dynamodb:create:createHandler': this.createHandler.bind(this),
       'dynamodb:execute:executeHandler': this.executeHandler.bind(this),
       'dynamodb:executeAll:executeAllHandler': this.executeAllHandler.bind(this),
+      'dynamodb:executeAllTest:executeAllTestHandler': this.executeAllTestHandler.bind(this),
       'dynamodb:remove:removeHandler': this.removeHandler.bind(this),
       'dynamodb:install:installHandler': this.installHandler.bind(this),
       'dynamodb:start:startHandler': this.startHandler.bind(this),
@@ -190,6 +197,57 @@ class ServerlessDynamodbLocal {
     });
   }
 
+  executeAllTestHandler(isOffline) {
+    const sfold = function(l, i, fn, next) {
+      function recur(idx, v) {
+        if (idx >= l.length) {
+          next(null, v);
+        } else {
+          fn(l[idx], v, function(err, r) {
+            if (err) {
+              next(err);
+            } else {
+              recur(idx + 1, r);
+            }
+          });
+        }
+      }
+      recur(0, i);
+    };
+    let self = this,
+      region = isOffline ? null : self.service.provider.region,
+      options = this.options;
+    return new BbPromise(function(resolve, reject) {
+      let dynamodb = self.dynamodbOptions(null),
+        tableOptions = self.tableOptions();
+      dynamodbMigrations.init(dynamodb, tableOptions.path);
+      tableOptions.prefix = 'test_';
+      var tableNames = [];
+      fs.readdirSync(tableOptions.path).forEach(function(file) {
+        if (path.extname(file) === '.json') {
+          var migration = require(tableOptions.path + '/' + file);
+          tableNames.push(tableOptions.prefix + migration.Table.TableName + tableOptions.suffix);
+        }
+      });
+      sfold(tableNames, null, function(TableName, sofar, next) {
+        dynamodb.raw.deleteTable({ TableName }, function(err) {
+          if (err) {
+            reject(err);
+          } else {
+            console.log('Table deletion completed for table:', TableName);
+            next();
+          }
+        });
+      }, function(err) {
+        if (err) {
+          reject(err);
+        } else {
+          dynamodbMigrations.executeAll(tableOptions).then(resolve, reject);
+        }
+      });
+    });
+  }
+
   removeHandler() {
     console.log('remove disabled');
     return BbPromise.resolve();
@@ -215,7 +273,6 @@ class ServerlessDynamodbLocal {
   startHandler() {
     console.log('start disabled');
     return BbPromise.resolve();
-      res
     /*
     let self = this,
       options = this.options;
