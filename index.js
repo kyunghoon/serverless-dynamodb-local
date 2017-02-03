@@ -43,33 +43,29 @@ class ServerlessDynamodbLocal {
               },
               region: {
                 shortcut: 'r',
-                usage: 'Region that dynamodb should be remotely executed'
+                usage: 'not set, uses region defined in severless.yml',
               },
               stage: {
+                required: true,
                 shortcut: 's',
-                usage: 'Stage that dynamodb should be remotely executed'
+                usage: 'test | local | development | production'
               }
             }
           },
           executeAll: {
             lifecycleEvents: ['executeAllHandler'],
             options: {
-              stage: {
-                shortcut: 's',
-                usage: 'Stage that dynamodb should be remotely executed'
-              }
-            }
-          },
-          executeAllTest: {
-            lifecycleEvents: ['executeAllTestHandler'],
-            options: {
               force: {
                 shortcut: 'f',
                 usage: 'Replace existing tables'
               },
+              region: {
+                shortcut: 'r',
+                usage: 'if not set, uses region defined in severless.yml',
+              },
               stage: {
                 shortcut: 's',
-                usage: 'Stage that dynamodb should be remotely executed'
+                usage: 'test | local | development | production'
               }
             }
           }
@@ -80,8 +76,7 @@ class ServerlessDynamodbLocal {
     this.hooks = {
       'dynamodb:create:createHandler': this.createHandler.bind(this),
       'dynamodb:execute:executeHandler': this.executeHandler.bind(this),
-      'dynamodb:executeAll:executeAllHandler': this.executeAllHandler.bind(this),
-      'dynamodb:executeAllTest:executeAllTestHandler': this.executeAllTestHandler.bind(this)
+      'dynamodb:executeAll:executeAllHandler': this.executeAllHandler.bind(this)
     };
   }
   createHandler() {
@@ -243,52 +238,51 @@ class ServerlessDynamodbLocal {
   }
 
   executeHandler() {
-    let self = this,
-      options = this.options;
-    let dynamodb = self.dynamodbOptions(options.region),
+    var self = this;
+    var options = this.options;
+    options.stage = options.stage || 'local';
+    if (!self.isValidStage(options.stage)) {
+      console.error('invalid stage');
+      return;
+    }
+    options.region = options.region || this.service.provider.region;
+    if (options.stage === 'test' || options.stage === 'local') {
+      options.region = null;
+    }
+    var dynamodb = self.dynamodbOptions(options.region),
       tableOptions = self.tableOptions();
+    tableOptions.prefix = options.stage + '_';
     dynamodbMigrations.init(dynamodb, tableOptions.path);
     return self.createTable(dynamodb, tableOptions, options);
   }
 
-  executeAllHandler(isOffline) {
-    let self = this,
-      region = isOffline ? null : self.service.provider.region,
-      options = this.options;
-
-    return new BbPromise(function(resolve, reject) {
-      let dynamodb = self.dynamodbOptions(region),
-        tableOptions = self.tableOptions();
-      dynamodbMigrations.init(dynamodb, tableOptions.path);
-      dynamodbMigrations.executeAll(tableOptions).then(resolve, reject);
-    });
+  isValidStage(stage) {
+    return ['test', 'local', 'development', 'production'].indexOf(stage) !== -1;
   }
 
-  executeAllTestHandler(isOffline) {
-    const sfold = function(l, i, fn, next) {
+  executeAllHandler(isOffline) {
+    var sfold = function(l, i, fn, next) {
       function recur(idx, v) {
-        if (idx >= l.length) {
-          next(null, v);
-        } else {
+        if (idx >= l.length) { next(null, v); } else {
           fn(l[idx], v, function(err, r) {
-            if (err) {
-              next(err);
-            } else {
-              recur(idx + 1, r);
-            }
-          });
-        }
-      }
-      recur(0, i);
-    };
-    let self = this,
-      region = isOffline ? null : self.service.provider.region,
-      options = this.options;
+            if (err) { next(err); } else { recur(idx + 1, r); }
+          }); } } recur(0, i); };
+    var self = this;
+    var options = this.options;
+    options.stage = options.stage || 'local';
+    if (!self.isValidStage(options.stage)) {
+      console.error('invalid stage');
+      return;
+    }
+    options.region = options.region || this.service.provider.region;
+    if (options.stage === 'test' || options.stage === 'local') {
+      options.region = null;
+    }
     return new BbPromise(function(resolve, reject) {
-      let dynamodb = self.dynamodbOptions(null),
+      var dynamodb = self.dynamodbOptions(options.region),
         tableOptions = self.tableOptions();
       dynamodbMigrations.init(dynamodb, tableOptions.path);
-      tableOptions.prefix = 'test_';
+      tableOptions.prefix = options.stage + '_';
       var migrations = [];
       fs.readdirSync(tableOptions.path).forEach(function(file) {
         if (path.extname(file) === '.json') {
@@ -297,16 +291,12 @@ class ServerlessDynamodbLocal {
         }
       });
       sfold(migrations, null, function(migration, sofar, next) {
-        const fullTableName = self.formatTableName(migration, tableOptions);
+        var fullTableName = self.formatTableName(migration, tableOptions);
         options.name = migration.Table.TableName;
         options.n = options.name;
         self.createTable(dynamodb, tableOptions, options)
-          .then(function() {
-            next();
-          })
-          .catch(function(err) {
-            next();
-          });
+          .then(function() { next(); })
+          .catch(function(err) { next(); });
       }, function(err) {
         if (err) {
           reject(err);
