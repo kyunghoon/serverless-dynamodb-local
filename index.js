@@ -133,6 +133,9 @@ class ServerlessDynamodbLocal {
     return new BbPromise(function(resolve, reject) {
       dynamodb.raw.createTable(migration.Table, function(err) {
         if (err) {
+          if (err.code !== 'ResourceInUseException') {
+            console.log('ERROR ' + migration.Table.TableName + ':', 'failed to create table', err.message);
+          }
           reject(err);
         } else {
           //console.log("Table creation completed for table: " + migration.Table.TableName);
