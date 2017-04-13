@@ -207,7 +207,7 @@ class ServerlessDynamodbLocal {
     //console.log('=============', JSON.stringify(options));
     var self = this;
     return new BbPromise(function(resolve, reject) {
-      var migration = require(tableOptions.path + '/' + options.name + '.json');
+      var migration = require(tableOptions.path + '/' + options.name + '.js').default();
       migration.Table.TableName = self.formatTableName(migration, tableOptions);
       var create = function(resolve, reject) {
         self._createTable(dynamodb, migration).then(function(executedMigrations) {
@@ -288,8 +288,8 @@ class ServerlessDynamodbLocal {
       tableOptions.prefix = options.stage + '_';
       var migrations = [];
       fs.readdirSync(tableOptions.path).forEach(function(file) {
-        if (path.extname(file) === '.json') {
-          var migration = require(tableOptions.path + '/' + file);
+        if (path.extname(file) === '.js') {
+          var migration = require(tableOptions.path + '/' + file).default();
           migrations.push(migration);
         }
       });
